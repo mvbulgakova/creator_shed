@@ -1,0 +1,458 @@
+<title>Расписание ИМИ МПГУ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: рабочая сетка недели, как в бумажном расписании (дни × пары × неделя 1/2), над ней — сводка вариантов */
+:root {
+  --paper: #f5f7fa;
+  --sheet: #ffffff;
+  --ink: #17233a;
+  --ink-soft: #55627a;
+  --rule: #d5dce7;
+  --rule-soft: #e7ecf3;
+  --accent: #2346b8;
+  --accent-ink: #ffffff;
+  --accent-wash: #e6ecfb;
+  --moved: #b5660a;
+  --moved-wash: #fdf1e1;
+  --bad: #b8282f;
+  --bad-wash: #fbe7e8;
+  --good: #1f7a4a;
+  --good-wash: #e3f4ea;
+  --lect: #2346b8;
+  --prac: #12707a;
+  --lab: #7a3fb0;
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1522; --sheet: #161e2e; --ink: #e4e9f3; --ink-soft: #97a3ba;
+    --rule: #2c3850; --rule-soft: #212b3e; --accent: #7d9bff; --accent-ink: #0f1522;
+    --accent-wash: #1d2a4d; --moved: #f0a54a; --moved-wash: #33240f; --bad: #ff7a80;
+    --bad-wash: #3a1a1e; --good: #5ccf8e; --good-wash: #13301f;
+    --lect: #8fa8ff; --prac: #5cc6cf; --lab: #c39af0; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1522; --sheet: #161e2e; --ink: #e4e9f3; --ink-soft: #97a3ba;
+  --rule: #2c3850; --rule-soft: #212b3e; --accent: #7d9bff; --accent-ink: #0f1522;
+  --accent-wash: #1d2a4d; --moved: #f0a54a; --moved-wash: #33240f; --bad: #ff7a80;
+  --bad-wash: #3a1a1e; --good: #5ccf8e; --good-wash: #13301f;
+  --lect: #8fa8ff; --prac: #5cc6cf; --lab: #c39af0; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 28px; }
+h1, h2 { font-family: var(--font-display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.5rem, 3.4vw, 2.3rem); line-height: 1.15; }
+h2 { font-size: 1.05rem; font-weight: 500; }
+.eyebrow { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+header.top { display: grid; gap: 10px; }
+header.top p { margin: 0; max-width: 68ch; color: var(--ink-soft); }
+.weekline { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 0.9rem; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--accent-wash); color: var(--accent); font-weight: 600; font-size: 0.85rem; }
+
+/* варианты */
+.variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.variant { text-align: left; border: 1.5px solid var(--rule); background: var(--sheet); color: var(--ink); border-radius: 10px; padding: 14px 16px; cursor: pointer; display: grid; gap: 6px; font: inherit; }
+.variant:hover { border-color: var(--accent); }
+.variant[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.variant .vname { font-weight: 700; font-size: 1rem; }
+.variant .vdesc { color: var(--ink-soft); font-size: 0.85rem; }
+.variant .vstats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.chip { font-size: 0.78rem; padding: 2px 8px; border-radius: 6px; background: var(--rule-soft); color: var(--ink-soft); font-weight: 600; white-space: nowrap; }
+.chip.bad { background: var(--bad-wash); color: var(--bad); }
+.chip.good { background: var(--good-wash); color: var(--good); }
+.chip.moved { background: var(--moved-wash); color: var(--moved); }
+
+/* метрики */
+.scroll { overflow-x: auto; }
+table.metrics { border-collapse: collapse; width: 100%; min-width: 560px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+table.metrics th, table.metrics td { padding: 8px 12px; border-bottom: 1px solid var(--rule-soft); text-align: right; font-variant-numeric: tabular-nums; }
+table.metrics th:first-child, table.metrics td:first-child { text-align: left; }
+table.metrics thead th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); font-weight: 600; }
+table.metrics td.sel, table.metrics th.sel { background: var(--accent-wash); }
+.delta { font-size: 0.78rem; margin-left: 6px; }
+.delta.up { color: var(--bad); } .delta.down { color: var(--good); }
+
+/* панель просмотра */
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; font-size: 0.88rem; border: 0; background: transparent; color: var(--ink); padding: 7px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+label.field { display: grid; gap: 4px; font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; min-width: 0; }
+select, input[type="search"] { font: inherit; font-size: 0.95rem; text-transform: none; letter-spacing: 0; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 7px 10px; max-width: 100%; }
+select { min-width: 220px; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.entity-meta { color: var(--ink-soft); font-size: 0.88rem; }
+
+/* сетка недели */
+.grid-wrap { overflow-x: auto; }
+table.week { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 960px; table-layout: fixed; }
+table.week th, table.week td { border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); vertical-align: top; padding: 4px; }
+table.week thead th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); padding: 6px; text-align: left; border-bottom: 1.5px solid var(--rule); }
+table.week th.time { width: 76px; text-align: left; font-weight: 400; }
+.time .n { font-family: var(--font-display); font-size: 1rem; font-weight: 500; display: block; }
+.time .t { font-family: var(--font-data); font-size: 0.72rem; color: var(--ink-soft); white-space: nowrap; }
+.time sup { font-size: 0.62em; }
+td.today { background: color-mix(in srgb, var(--accent-wash) 45%, transparent); }
+.card { border-radius: 7px; padding: 6px 8px 7px; background: var(--paper); border-left: 3px solid var(--rule); display: grid; gap: 2px; font-size: 0.82rem; line-height: 1.3; margin-bottom: 4px; min-width: 0; }
+.card.k-lecture { border-left-color: var(--lect); }
+.card.k-practice { border-left-color: var(--prac); }
+.card.k-lab { border-left-color: var(--lab); }
+.card.k-selfstudy, .card.k-internship { border-left-color: var(--rule); color: var(--ink-soft); }
+.card.moved { background: var(--moved-wash); }
+.card.conflict { background: var(--bad-wash); box-shadow: inset 0 0 0 1px var(--bad); }
+.card .subj { font-weight: 600; overflow-wrap: anywhere; }
+.card .who, .card .where { color: var(--ink-soft); overflow-wrap: anywhere; }
+.card .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tag { font-size: 0.7rem; font-weight: 600; padding: 0 5px; border-radius: 4px; background: var(--rule-soft); color: var(--ink-soft); }
+.tag.moved { background: transparent; color: var(--moved); padding: 0; }
+.tag.bad { background: transparent; color: var(--bad); padding: 0; }
+.tag.wk { background: var(--accent-wash); color: var(--accent); }
+.empty { color: var(--ink-soft); font-size: 0.9rem; }
+
+/* список по дням для телефона */
+.daylist { display: none; gap: 14px; }
+.daylist .day h3 { margin: 0 0 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.daylist .row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding-block: 4px; border-top: 1px solid var(--rule-soft); }
+@media (max-width: 760px) {
+  .grid-wrap { display: none; }
+  .daylist { display: grid; }
+  select { min-width: 0; width: 100%; }
+  .controls > * { flex: 1 1 100%; }
+}
+
+/* списки */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ul.plain li { padding: 10px 12px; border: 1px solid var(--rule-soft); border-radius: 8px; background: var(--paper); font-size: 0.88rem; display: grid; gap: 3px; }
+ul.plain li .head { font-weight: 600; }
+ul.plain li.bad { border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+a.lnk, button.lnk { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.arrow { font-family: var(--font-data); color: var(--moved); }
+.rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+.room { border: 1px solid var(--rule); border-radius: 8px; padding: 8px; display: grid; gap: 2px; background: var(--paper); }
+.room b { font-family: var(--font-data); font-size: 1.05rem; }
+.room small { color: var(--ink-soft); font-size: 0.72rem; }
+.room.busy { opacity: 0.45; }
+.room.free { border-color: var(--good); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--ink-soft); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+details.how { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; }
+details.how summary { cursor: pointer; font-weight: 600; }
+details.how .body { display: grid; gap: 10px; max-width: 72ch; margin-top: 10px; }
+details.how p { margin: 0; }
+code { font-family: var(--font-data); font-size: 0.85em; background: var(--rule-soft); padding: 1px 5px; border-radius: 4px; }
+pre { font-family: var(--font-data); font-size: 0.82rem; background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 0; }
+@media (prefers-reduced-motion: no-preference) { .card { transition: background 0.2s; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Институт математики и информатики МПГУ · осенний семестр 2026/27</div>
+    <h1>Конструктор расписания матфака</h1>
+    <p>Расписание собрано из восьми опубликованных PDF. Программа нашла накладки и предложила два исправленных варианта: бережный и с полной перестройкой. Выберите вариант и посмотрите неделю любой группы, преподавателя или аудитории.</p>
+    <div class="weekline"><span class="pill" id="weekNow"></span><span class="entity-meta" id="scopeNote"></span></div>
+  </header>
+
+  <section class="variants" id="variants" aria-label="Варианты расписания"></section>
+
+  <section style="display:grid;gap:10px">
+    <h2>Сравнение вариантов</h2>
+    <div class="scroll"><table class="metrics" id="metrics"></table></div>
+    <div class="entity-meta">Пары считаются за две недели (1-я и 2-я). Занятия по отдельным датам, практики и дни самостоятельной работы не двигаются.</div>
+  </section>
+
+  <section class="panel" aria-label="Просмотр расписания">
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Что смотреть" id="modeSeg">
+        <button type="button" data-mode="g" aria-pressed="true">Группа</button>
+        <button type="button" data-mode="t" aria-pressed="false">Преподаватель</button>
+        <button type="button" data-mode="r" aria-pressed="false">Аудитория</button>
+      </div>
+      <label class="field" for="entity">Выбор<select id="entity"></select></label>
+      <div class="seg" role="group" aria-label="Неделя" id="weekSeg">
+        <button type="button" data-week="1" aria-pressed="true">1-я неделя</button>
+        <button type="button" data-week="2" aria-pressed="false">2-я неделя</button>
+      </div>
+    </div>
+    <div class="entity-meta" id="entityMeta"></div>
+    <div class="legend">
+      <span style="--c:var(--lect)">лекция</span><span style="--c:var(--prac)">практическое</span><span style="--c:var(--lab)">лабораторная</span><span style="--c:var(--moved)">перенесено</span><span style="--c:var(--bad)">накладка</span>
+    </div>
+    <div class="grid-wrap"><table class="week" id="week"></table></div>
+    <div class="daylist" id="daylist"></div>
+  </section>
+
+  <section class="cols">
+    <div style="display:grid;gap:10px;align-content:start">
+      <h2 id="conflictsTitle">Накладки</h2>
+      <ul class="plain" id="conflicts"></ul>
+    </div>
+    <div style="display:grid;gap:10px;align-content:start">
+      <h2 id="changesTitle">Что перенесено</h2>
+      <input type="search" id="changesFilter" placeholder="Фильтр: группа, предмет, преподаватель" aria-label="Фильтр переносов">
+      <ul class="plain" id="changes"></ul>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Свободные аудитории">
+    <h2>Свободные аудитории</h2>
+    <div class="controls">
+      <label class="field" for="frDay">День<select id="frDay"></select></label>
+      <label class="field" for="frSlot">Пара<select id="frSlot"></select></label>
+      <div class="seg" role="group" aria-label="Неделя" id="frWeekSeg">
+        <button type="button" data-week="1" aria-pressed="true">1-я</button>
+        <button type="button" data-week="2" aria-pressed="false">2-я</button>
+      </div>
+    </div>
+    <div class="rooms" id="rooms"></div>
+    <div class="entity-meta">«Поток до N групп» — сколько групп максимально сидело в аудитории по расписанию; ПК — компьютерный класс.</div>
+  </section>
+
+  <details class="how">
+    <summary>Как это работает</summary>
+    <div class="body">
+      <p>Идея взята у школьного «СуперЗавуча» с Хабра. Там расписание собирается имитацией отжига. Здесь тот же подход, только для вуза: потоки из нескольких групп, подгруппы, числитель и знаменатель, разные корпуса, занятия по отдельным датам.</p>
+      <p><b>Разбор PDF.</b> Из таблиц достаются ячейки вместе с их границами. Объединённая по горизонтали ячейка становится потоком из нескольких групп, по вертикали — занятием на обе недели. Из текста ячейки берутся дисциплина, тип занятия, преподаватели с подгруппами, аудитории, даты и дистанционный формат.</p>
+      <p><b>Оптимизация.</b> Занятия переставляются по дням, парам и неделям, аудитории меняются. Ход принимается, если штраф уменьшился, а иногда и при росте штрафа, пока «температура» высокая. Накладки преподавателей, групп и аудиторий штрафуются очень сильно. Окна, перегруженные дни, поздние пары, суббота, физкультура на Кибальчича сразу после пары на Краснопрудной и новые рабочие дни преподавателей штрафуются умеренно.</p>
+      <p><b>Пожелания</b> («у Цыбули Л.М. нет пар по субботам», «не трогать занятия Атанасяна С.Л.») и веса штрафов задаются в <code>config.toml</code>.</p>
+      <pre>python -m raspisanie parse            # PDF → data/parsed.json
+python -m raspisanie check            # накладки и метрики действующего расписания
+python -m raspisanie solve --mode gentle
+python -m raspisanie solve --mode full --out data/optimized_full.json
+python -m raspisanie export           # Excel и .ics для групп и преподавателей
+python -m raspisanie site             # эта страница</pre>
+    </div>
+  </details>
+</div>
+
+<script>
+const D = /*__DATA__*/null;
+const DAYS = D.days, DSHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+const SLOT_TIMES = [["09","00","10","30"],["10","40","12","10"],["12","40","14","10"],["14","20","15","50"],["16","00","17","30"],["17","40","19","10"],["19","20","20","50"]];
+const KIND = {"ЛК":"лекция","ПЗ":"практ.","ПР":"практикум","лаб":"лаб.","СЗ":"семинар"};
+const WEEK1 = new Date(2026, 7, 31);
+const state = { v: 1, mode: "g", ent: {}, week: 1, frWeek: 1 };
+
+function store(k, v) { try { localStorage.setItem("rasp." + k, JSON.stringify(v)); } catch (e) {} }
+function recall(k, d) { try { const x = localStorage.getItem("rasp." + k); return x == null ? d : JSON.parse(x); } catch (e) { return d; } }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function currentWeek() {
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const weeks = Math.round((monday - WEEK1) / (7 * 86400000));
+  return { parity: ((weeks % 2) + 2) % 2 === 0 ? 1 : 2, day: (now.getDay() + 6) % 7 };
+}
+const NOW = currentWeek();
+
+function variant() { return D.variants[state.v]; }
+function pos(i, v = variant()) { return v.pos[i]; }
+function orig(i) { return D.variants[0].pos[i]; }
+function moved(i) { const a = pos(i), b = orig(i); return a[0] !== b[0] || a[1] !== b[1] || a[2].join() !== b[2].join(); }
+function roomChanged(i) { return pos(i)[3].join() !== orig(i)[3].join(); }
+function conflictSet() {
+  const s = new Map();
+  for (const c of variant().report.conflicts) for (const e of c.events) s.set(e, c);
+  return s;
+}
+
+function entityList(mode) {
+  if (mode === "g") return Object.keys(D.groups).sort((a, b) => (D.groups[a].course - D.groups[b].course) || a.localeCompare(b));
+  if (mode === "t") return D.teachers.slice().sort((a, b) => a.localeCompare(b, "ru"));
+  return D.rooms.slice();
+}
+function matches(i, mode, name) {
+  const e = D.events[i];
+  if (mode === "g") return e.g.includes(name);
+  if (mode === "t") return e.t.includes(name);
+  return pos(i)[3].includes(name);
+}
+
+function slotLabel(s) { const t = SLOT_TIMES[s]; return `${t[0]}<sup>${t[1]}</sup>–${t[2]}<sup>${t[3]}</sup>`; }
+
+function cardHTML(i, conf) {
+  const e = D.events[i], p = pos(i), mode = state.mode;
+  const subj = e.l.map(l => esc((l.e ? l.e + " " : "") + l.s)).join("<br>+ ");
+  const kinds = [...new Set(e.l.map(l => l.k).filter(Boolean))].map(k => KIND[k.split("/")[0]] ? k : k);
+  let who = "";
+  if (mode === "t") who = e.g.join(", ");
+  else who = e.l.flatMap(l => l.tt.map(t => t[0] + (t[1].length ? ` (${t[1].join(",")} п/гр)` : "") + (t[2] ? ` ${t[2]}.` : ""))).filter((x, k, a) => a.indexOf(x) === k).join(", ");
+  if (mode === "g" && e.g.length > 1) who += (who ? " · " : "") + "поток: " + e.g.length + " гр.";
+  let where = e.on ? "дистанционно, el.mpgu.su" : e.off ? e.off : p[3].length ? "ауд. " + p[3].join(", ") : "";
+  if (mode === "r") where = (e.t.length ? e.t.join(", ") + " · " : "") + e.g.join(", ");
+  const dates = e.l.map(l => l.d).filter(Boolean).join("; ");
+  const tags = [];
+  kinds.forEach(k => tags.push(`<span class="tag">${esc(k)}</span>`));
+  if (p[2].length === 1) tags.push(`<span class="tag wk">${p[2][0]}-я нед.</span>`);
+  if (dates) tags.push(`<span class="tag">${esc(dates)}</span>`);
+  if (state.v > 0 && moved(i)) { const o = orig(i); tags.push(`<span class="tag moved">было: ${DSHORT[o[0]]}, ${o[1] + 1} пара${o[2].length === 1 ? ", " + o[2][0] + "-я нед." : ""}</span>`); }
+  else if (state.v > 0 && roomChanged(i)) tags.push(`<span class="tag moved">была ауд. ${esc(orig(i)[3].join(", "))}</span>`);
+  if (conf) tags.push(`<span class="tag bad">накладка: ${conf.type === "r" ? "ауд. " : ""}${esc(conf.name)}</span>`);
+  const cls = ["card", "k-" + e.k, state.v > 0 && (moved(i) || roomChanged(i)) ? "moved" : "", conf ? "conflict" : ""].join(" ");
+  return `<div class="${cls}"><div class="subj">${subj}</div>${who ? `<div class="who">${esc(who)}</div>` : ""}${where ? `<div class="where">${esc(where)}</div>` : ""}${tags.length ? `<div class="tags">${tags.join("")}</div>` : ""}</div>`;
+}
+
+function renderVariants() {
+  const box = document.getElementById("variants");
+  box.innerHTML = D.variants.map((v, k) => {
+    const m = v.report.metrics;
+    const hard = m["Накладки (преподаватель/группа/аудитория)"];
+    const chips = [`<span class="chip ${hard ? "bad" : "good"}">накладок: ${hard}</span>`];
+    if (k > 0) chips.push(`<span class="chip moved">перенесено: ${m["Перенесено занятий"]}</span>`);
+    chips.push(`<span class="chip">окон у групп: ${m["Окна у групп (пар за 2 недели)"]}</span>`);
+    return `<button type="button" class="variant" data-v="${k}" aria-pressed="${k === state.v}"><span class="vname">${esc(v.name)}</span><span class="vdesc">${esc(v.desc)}</span><span class="vstats">${chips.join("")}</span></button>`;
+  }).join("");
+  box.querySelectorAll(".variant").forEach(b => b.onclick = () => { state.v = +b.dataset.v; store("v", state.v); renderAll(); });
+}
+
+function renderMetrics() {
+  const keys = Object.keys(D.variants[0].report.metrics);
+  const head = `<thead><tr><th>Показатель</th>${D.variants.map((v, k) => `<th class="${k === state.v ? "sel" : ""}">${esc(v.name)}</th>`).join("")}</tr></thead>`;
+  const rows = keys.map(key => {
+    const base = D.variants[0].report.metrics[key];
+    const tds = D.variants.map((v, k) => {
+      const x = v.report.metrics[key];
+      const change = /Перенесено|Сменено/.test(key);
+      let d = "";
+      if (k > 0 && !change && x !== base) d = `<span class="delta ${x > base ? "up" : "down"}">${x > base ? "+" : "−"}${Math.abs(x - base)}</span>`;
+      return `<td class="${k === state.v ? "sel" : ""}"><span class="mono">${x}</span>${d}</td>`;
+    }).join("");
+    return `<tr><td>${esc(key)}</td>${tds}</tr>`;
+  }).join("");
+  document.getElementById("metrics").innerHTML = head + "<tbody>" + rows + "</tbody>";
+}
+
+function renderControls() {
+  document.querySelectorAll("#modeSeg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
+  document.querySelectorAll("#weekSeg button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.week === state.week));
+  const sel = document.getElementById("entity");
+  const list = entityList(state.mode);
+  if (!list.includes(state.ent[state.mode])) state.ent[state.mode] = list[0];
+  if (state.mode === "g") {
+    const byCourse = {};
+    list.forEach(g => (byCourse[D.groups[g].course] ||= []).push(g));
+    sel.innerHTML = Object.keys(byCourse).map(c => `<optgroup label="${c} курс">${byCourse[c].map(g => `<option ${g === state.ent.g ? "selected" : ""}>${esc(g)}</option>`).join("")}</optgroup>`).join("");
+  } else {
+    sel.innerHTML = list.map(x => `<option ${x === state.ent[state.mode] ? "selected" : ""}>${esc(x)}</option>`).join("");
+  }
+}
+
+function renderWeek() {
+  const name = state.ent[state.mode], conf = conflictSet();
+  const meta = document.getElementById("entityMeta");
+  if (state.mode === "g") { const g = D.groups[name]; meta.textContent = `${g.direction} · ${g.profile} · ${g.course} курс, ${g.form} форма · занятия ${g.period ? g.period.join(" — ") : ""}`; }
+  else meta.textContent = `Поток до ${D.roomCap[name] || 1} гр.${D.compRooms.includes(name) ? " · компьютерный класс" : ""}`;
+  const cells = {};
+  let maxSlot = 3, count = 0;
+  D.events.forEach((_, i) => {
+    if (!matches(i, state.mode, name)) return;
+    const p = pos(i);
+    if (!p[2].includes(state.week)) return;
+    (cells[p[0] + ":" + p[1]] ||= []).push(i);
+    maxSlot = Math.max(maxSlot, p[1]); count++;
+  });
+  if (state.mode === "t") meta.textContent = `${count} ${count % 10 === 1 && count % 100 !== 11 ? "пара" : (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20)) ? "пары" : "пар"} на ${state.week}-й неделе`;
+  const today = state.week === NOW.parity ? NOW.day : -1;
+  let html = `<thead><tr><th class="time">Пара</th>${DAYS.map((d, k) => `<th>${d}${k === today ? " · сегодня" : ""}</th>`).join("")}</tr></thead><tbody>`;
+  let list = "";
+  for (let s = 0; s <= maxSlot; s++) {
+    html += `<tr><th class="time"><span class="n">${s + 1}</span><span class="t">${slotLabel(s)}</span></th>`;
+    for (let d = 0; d < 6; d++) {
+      const ids = cells[d + ":" + s] || [];
+      html += `<td class="${d === today ? "today" : ""}">${ids.map(i => cardHTML(i, conf.get(i))).join("")}</td>`;
+    }
+    html += "</tr>";
+  }
+  for (let d = 0; d < 6; d++) {
+    let rows = "";
+    for (let s = 0; s <= 6; s++) {
+      const ids = cells[d + ":" + s] || [];
+      if (ids.length) rows += `<div class="row"><div class="time"><span class="n">${s + 1}</span><span class="t">${slotLabel(s)}</span></div><div>${ids.map(i => cardHTML(i, conf.get(i))).join("")}</div></div>`;
+    }
+    list += `<div class="day"><h3>${DAYS[d]}${d === today ? " · сегодня" : ""}</h3>${rows || '<div class="empty">Пар нет</div>'}</div>`;
+  }
+  document.getElementById("week").innerHTML = html + "</tbody>";
+  document.getElementById("daylist").innerHTML = list;
+}
+
+function goTo(mode, name, week) {
+  state.mode = mode; state.ent[mode] = name; if (week) state.week = week;
+  renderControls(); renderWeek();
+  document.querySelector(".panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderConflicts() {
+  const v = variant(), names = { t: "Преподаватель", g: "Группа", r: "Аудитория" }, modes = { t: "t", g: "g", r: "r" };
+  const cs = v.report.conflicts;
+  document.getElementById("conflictsTitle").textContent = `Накладки · ${v.name.toLowerCase()} (${cs.length})`;
+  const ul = document.getElementById("conflicts");
+  if (!cs.length) { ul.innerHTML = `<li><span class="head">Накладок нет</span><span>Ни один преподаватель, группа или аудитория не заняты дважды в одно время.</span></li>`; return; }
+  ul.innerHTML = cs.map((c, k) => {
+    const wk = c.weeks.length === 2 ? "каждую неделю" : `${c.weeks[0]}-я неделя`;
+    const evs = c.events.map(i => `${esc(D.events[i].g.join(", "))}: ${esc(D.events[i].l[0].s)}`).join("<br>");
+    return `<li class="${c.possible ? "" : "bad"}"><span class="head">${names[c.type]} <button class="lnk" data-k="${k}">${esc(c.name)}</button></span><span class="mono" style="font-size:.8rem">${DAYS[c.day]}, ${c.slot + 1} пара, ${wk}${c.possible ? " · по датам, проверить" : ""}</span><span>${evs}</span></li>`;
+  }).join("");
+  ul.querySelectorAll("button.lnk").forEach(b => b.onclick = () => { const c = cs[+b.dataset.k]; goTo(modes[c.type], c.name, c.weeks[0]); });
+}
+
+function renderChanges() {
+  const v = variant(), ul = document.getElementById("changes");
+  document.getElementById("changesTitle").textContent = state.v ? `Что перенесено · ${v.name.toLowerCase()}` : "Что перенесено";
+  if (!state.v) { ul.innerHTML = `<li><span>Выберите исправленный вариант вверху, чтобы увидеть переносы.</span></li>`; return; }
+  const q = document.getElementById("changesFilter").value.trim().toLowerCase();
+  const items = [];
+  D.events.forEach((e, i) => {
+    if (!moved(i) && !roomChanged(i)) return;
+    const text = (e.g.join(" ") + " " + e.l.map(l => l.s).join(" ") + " " + e.t.join(" ")).toLowerCase();
+    if (q && !text.includes(q)) return;
+    const a = orig(i), b = pos(i);
+    const fmt = p => `${DSHORT[p[0]]} ${p[1] + 1}п${p[2].length === 1 ? " (" + p[2][0] + ")" : ""}${p[3].length ? " · " + p[3].join(",") : ""}`;
+    items.push(`<li><span class="head">${esc(e.l.map(l => l.s).join(" + "))}</span><span>${esc(e.g.join(", "))}${e.t.length ? " · " + esc(e.t.join(", ")) : ""}</span><span class="arrow">${esc(fmt(a))} → ${esc(fmt(b))}</span><span><button class="lnk" data-g="${esc(e.g[0])}" data-w="${b[2][0]}">открыть неделю группы</button></span></li>`);
+  });
+  ul.innerHTML = items.length ? items.slice(0, 150).join("") + (items.length > 150 ? `<li><span>…и ещё ${items.length - 150}. Уточните фильтр.</span></li>` : "") : `<li><span>Ничего не найдено.</span></li>`;
+  ul.querySelectorAll("button.lnk").forEach(b => b.onclick = () => goTo("g", b.dataset.g, +b.dataset.w));
+}
+
+function renderRooms() {
+  const d = +document.getElementById("frDay").value, s = +document.getElementById("frSlot").value, w = state.frWeek;
+  document.querySelectorAll("#frWeekSeg button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.week === w));
+  const busy = {};
+  D.events.forEach((e, i) => { const p = pos(i); if (p[0] === d && p[1] === s && p[2].includes(w)) p[3].forEach(r => busy[r] = e); });
+  document.getElementById("rooms").innerHTML = D.rooms.map(r => {
+    const e = busy[r];
+    return `<div class="room ${e ? "busy" : "free"}"><b>${esc(r)}</b><small>${e ? esc(e.g[0]) : "свободна"}</small><small>поток до ${D.roomCap[r] || 1} гр.${D.compRooms.includes(r) ? " · ПК" : ""}</small></div>`;
+  }).join("");
+}
+
+function renderAll() { renderVariants(); renderMetrics(); renderControls(); renderWeek(); renderConflicts(); renderChanges(); renderRooms(); }
+
+function init() {
+  state.v = Math.min(recall("v", 1), D.variants.length - 1);
+  state.mode = recall("mode", "g");
+  state.ent = recall("ent", {});
+  state.week = NOW.parity; state.frWeek = NOW.parity;
+  document.getElementById("weekNow").textContent = `Сейчас ${NOW.parity}-я неделя`;
+  document.getElementById("scopeNote").textContent = `Данные на ${new Date(D.generated).toLocaleDateString("ru-RU")}: ${Object.keys(D.groups).length} групп, ${D.teachers.length} преподавателей, ${D.events.length} занятий.${D.scopeNote ? " " + D.scopeNote : ""}`;
+  document.querySelectorAll("#modeSeg button").forEach(b => b.onclick = () => { state.mode = b.dataset.mode; store("mode", state.mode); renderControls(); renderWeek(); });
+  document.querySelectorAll("#weekSeg button").forEach(b => b.onclick = () => { state.week = +b.dataset.week; renderControls(); renderWeek(); });
+  document.getElementById("entity").onchange = ev => { state.ent[state.mode] = ev.target.value; store("ent", state.ent); renderWeek(); };
+  document.getElementById("changesFilter").oninput = renderChanges;
+  document.getElementById("frDay").innerHTML = DAYS.map((d, k) => `<option value="${k}" ${k === Math.min(NOW.day, 5) ? "selected" : ""}>${d}</option>`).join("");
+  document.getElementById("frSlot").innerHTML = SLOT_TIMES.map((t, k) => `<option value="${k}" ${k === 2 ? "selected" : ""}>${k + 1} пара · ${t[0]}:${t[1]}–${t[2]}:${t[3]}</option>`).join("");
+  document.getElementById("frDay").onchange = renderRooms;
+  document.getElementById("frSlot").onchange = renderRooms;
+  document.querySelectorAll("#frWeekSeg button").forEach(b => b.onclick = () => { state.frWeek = +b.dataset.week; renderRooms(); });
+  renderAll();
+}
+init();
+</script>
