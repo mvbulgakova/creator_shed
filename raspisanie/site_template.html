@@ -223,6 +223,7 @@ pre { font-family: var(--font-data); font-size: 0.82rem; background: var(--paper
     <div class="body">
       <p>Идея взята у школьного «СуперЗавуча» с Хабра. Там расписание собирается имитацией отжига. Здесь тот же подход, только для вуза: потоки из нескольких групп, подгруппы, числитель и знаменатель, разные корпуса, занятия по отдельным датам.</p>
       <p><b>Разбор PDF.</b> Из таблиц достаются ячейки вместе с их границами. Объединённая по горизонтали ячейка становится потоком из нескольких групп, по вертикали — занятием на обе недели. Из текста ячейки берутся дисциплина, тип занятия, преподаватели с подгруппами, аудитории, даты и дистанционный формат.</p>
+      <p><b>Потоки.</b> Одну и ту же лекцию преподаватель может читать сразу нескольким группам своего курса в одной аудитории. Это не накладка: оптимизатор может собирать такие лекции в поток, если группы помещаются в аудиторию, и за это немного поощряется.</p>
       <p><b>Оптимизация.</b> Занятия переставляются по дням, парам и неделям, аудитории меняются. Ход принимается, если штраф уменьшился, а иногда и при росте штрафа, пока «температура» высокая. Накладки преподавателей, групп и аудиторий штрафуются очень сильно. Окна, перегруженные дни, поздние пары, суббота, физкультура на Кибальчича сразу после пары на Краснопрудной и новые рабочие дни преподавателей штрафуются умеренно.</p>
       <p><b>Пожелания</b> («у Цыбули Л.М. нет пар по субботам», «не трогать занятия Атанасяна С.Л.») и веса штрафов задаются в <code>config.toml</code>.</p>
       <pre>python -m raspisanie parse            # PDF → data/parsed.json
@@ -260,6 +261,21 @@ function pos(i, v = variant()) { return v.pos[i]; }
 function orig(i) { return D.variants[0].pos[i]; }
 function moved(i) { const a = pos(i), b = orig(i); return a[0] !== b[0] || a[1] !== b[1] || a[2].join() !== b[2].join(); }
 function roomChanged(i) { return pos(i)[3].join() !== orig(i)[3].join(); }
+// лекции, которые преподаватель читает потоку: событие -> его «соседи» по потоку
+function streamMap() {
+  const m = new Map();
+  for (const st of variant().report.streams || []) {
+    const [a, b] = st.events;
+    (m.get(a) || m.set(a, new Set()).get(a)).add(b);
+    (m.get(b) || m.set(b, new Set()).get(b)).add(a);
+  }
+  return m;
+}
+function streamGroups(i, sm) {
+  const g = new Set(D.events[i].g);
+  for (const j of sm.get(i) || []) D.events[j].g.forEach(x => g.add(x));
+  return [...g];
+}
 function conflictSet() {
   const s = new Map();
   for (const c of variant().report.conflicts) for (const e of c.events) s.set(e, c);
@@ -280,16 +296,17 @@ function matches(i, mode, name) {
 
 function slotLabel(s) { const t = SLOT_TIMES[s]; return `${t[0]}<sup>${t[1]}</sup>–${t[2]}<sup>${t[3]}</sup>`; }
 
-function cardHTML(i, conf) {
+function cardHTML(i, conf, sm) {
   const e = D.events[i], p = pos(i), mode = state.mode;
+  const groups = streamGroups(i, sm);
   const subj = e.l.map(l => esc((l.e ? l.e + " " : "") + l.s)).join("<br>+ ");
   const kinds = [...new Set(e.l.map(l => l.k).filter(Boolean))].map(k => KIND[k.split("/")[0]] ? k : k);
   let who = "";
-  if (mode === "t") who = e.g.join(", ");
+  if (mode === "t") who = groups.join(", ");
   else who = e.l.flatMap(l => l.tt.map(t => t[0] + (t[1].length ? ` (${t[1].join(",")} п/гр)` : "") + (t[2] ? ` ${t[2]}.` : ""))).filter((x, k, a) => a.indexOf(x) === k).join(", ");
-  if (mode === "g" && e.g.length > 1) who += (who ? " · " : "") + "поток: " + e.g.length + " гр.";
+  if (mode === "g" && groups.length > 1) who += (who ? " · " : "") + "поток: " + groups.length + " гр.";
   let where = e.on ? "дистанционно, el.mpgu.su" : e.off ? e.off : p[3].length ? "ауд. " + p[3].join(", ") : "";
-  if (mode === "r") where = (e.t.length ? e.t.join(", ") + " · " : "") + e.g.join(", ");
+  if (mode === "r") where = (e.t.length ? e.t.join(", ") + " · " : "") + groups.join(", ");
   const dates = e.l.map(l => l.d).filter(Boolean).join("; ");
   const tags = [];
   kinds.forEach(k => tags.push(`<span class="tag">${esc(k)}</span>`));
@@ -348,7 +365,7 @@ function renderControls() {
 }
 
 function renderWeek() {
-  const name = state.ent[state.mode], conf = conflictSet();
+  const name = state.ent[state.mode], conf = conflictSet(), sm = streamMap();
   const meta = document.getElementById("entityMeta");
   if (state.mode === "g") { const g = D.groups[name]; meta.textContent = `${g.direction} · ${g.profile} · ${g.course} курс, ${g.form} форма · занятия ${g.period ? g.period.join(" — ") : ""}`; }
   else meta.textContent = `Поток до ${D.roomCap[name] || 1} гр.${D.compRooms.includes(name) ? " · компьютерный класс" : ""}`;
@@ -358,6 +375,8 @@ function renderWeek() {
     if (!matches(i, state.mode, name)) return;
     const p = pos(i);
     if (!p[2].includes(state.week)) return;
+    // поток показываем одной карточкой: второе событие той же лекции пропускаем
+    if (state.mode !== "g" && [...(sm.get(i) || [])].some(j => j < i && matches(j, state.mode, name) && pos(j)[2].includes(state.week))) return;
     (cells[p[0] + ":" + p[1]] ||= []).push(i);
     maxSlot = Math.max(maxSlot, p[1]); count++;
   });
@@ -369,7 +388,7 @@ function renderWeek() {
     html += `<tr><th class="time"><span class="n">${s + 1}</span><span class="t">${slotLabel(s)}</span></th>`;
     for (let d = 0; d < 6; d++) {
       const ids = cells[d + ":" + s] || [];
-      html += `<td class="${d === today ? "today" : ""}">${ids.map(i => cardHTML(i, conf.get(i))).join("")}</td>`;
+      html += `<td class="${d === today ? "today" : ""}">${ids.map(i => cardHTML(i, conf.get(i), sm)).join("")}</td>`;
     }
     html += "</tr>";
   }
@@ -377,7 +396,7 @@ function renderWeek() {
     let rows = "";
     for (let s = 0; s <= 6; s++) {
       const ids = cells[d + ":" + s] || [];
-      if (ids.length) rows += `<div class="row"><div class="time"><span class="n">${s + 1}</span><span class="t">${slotLabel(s)}</span></div><div>${ids.map(i => cardHTML(i, conf.get(i))).join("")}</div></div>`;
+      if (ids.length) rows += `<div class="row"><div class="time"><span class="n">${s + 1}</span><span class="t">${slotLabel(s)}</span></div><div>${ids.map(i => cardHTML(i, conf.get(i), sm)).join("")}</div></div>`;
     }
     list += `<div class="day"><h3>${DAYS[d]}${d === today ? " · сегодня" : ""}</h3>${rows || '<div class="empty">Пар нет</div>'}</div>`;
   }

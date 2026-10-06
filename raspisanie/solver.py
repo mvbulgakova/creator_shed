@@ -33,6 +33,7 @@ DEFAULT_WEIGHTS = {
     "teacher_new_day": 10.0,   # преподаватель приезжает в день, когда раньше не работал
     "stability": 0.0,          # штраф за перенос занятия относительно исходного расписания
     "room_change": 0.5,        # штраф за смену аудитории (чтобы не менять без нужды)
+    "stream_bonus": 3.0,       # поощрение: одну лекцию читают сразу нескольким группам (поток)
 }
 
 # «бережный» режим: двигаем только то, что действительно мешает
@@ -107,6 +108,19 @@ class Problem:
         self.dated = [bool(e["lessons"]) and all(l["dates"] for l in e["lessons"]) for e in ev]
         self.subgroups = [frozenset(e["subgroups"]) for e in ev]
         self.offsite = [bool(e["offsite"]) for e in ev]
+        # «подпись» лекции: одну и ту же лекцию преподаватель может читать потоку из нескольких групп
+        self.lecture_sig = []
+        for e in ev:
+            ls = e["lessons"]
+            if ls and all(l["kind"] == "ЛК" and l["teachers"] for l in ls) and not e["subgroups"]:
+                # поток собираем только внутри одного курса: «Матанализ» 1 и 2 курса — разные лекции
+                course = frozenset(self.groups.get(g, {}).get("course") for g in e["groups"])
+                self.lecture_sig.append((course, frozenset(
+                    (re.sub(r"\s+", " ", l["subject"].lower()).strip(), l["dates"],
+                     tuple(sorted(t["name"] for t in l["teachers"]))) for l in ls)))
+            else:
+                self.lecture_sig.append(None)
+        self.n_groups = [len(e["groups"]) for e in ev]
         # --- аудитории: «вместимость» = максимум групп, которые там сидели; компьютерные классы
         cap, lab_cnt, all_cnt = defaultdict(int), defaultdict(int), defaultdict(int)
         for e in ev:
@@ -192,8 +206,36 @@ class State:
                 self.occ[key].append(i)
 
     # ------------------------------------------------------------------ штрафы
+    def same_stream(self, a, b) -> bool:
+        """Одна и та же лекция одного преподавателя в одной аудитории (или онлайн) — это поток."""
+        pb = self.pb
+        sa = pb.lecture_sig[a]
+        if sa is None or sa != pb.lecture_sig[b]:
+            return False
+        ra, rb = self.pos[a][3], self.pos[b][3]
+        online = pb.data["events"][a]["online"] and pb.data["events"][b]["online"]
+        return online or (tuple(ra) == tuple(rb) and bool(ra))
+
+    def stream_lectures(self) -> int:
+        """Сколько раз за две недели лекцию читают сразу нескольким группам."""
+        pb = self.pb
+        groups = defaultdict(set)
+        for i in range(pb.n):
+            if pb.lecture_sig[i] is None:
+                continue
+            d, s, ws, rooms = self.pos[i]
+            for w in ws:
+                groups[(pb.lecture_sig[i], d, s, w, tuple(rooms))] |= set(pb.data["events"][i]["groups"])
+        return sum(len(g) > 1 for g in groups.values())
+
     def pair_conflict(self, a, b, kind) -> bool:
         pb = self.pb
+        if kind in ("t", "r") and self.same_stream(a, b):
+            if kind == "t":
+                return False
+            # аудитория: поток должен поместиться
+            cap = max(pb.room_cap.get(r, 0) for r in self.pos[a][3])
+            return pb.n_groups[a] + pb.n_groups[b] > cap
         if pb.dated[a] and pb.dated[b]:
             return False
         pa, pb_ = pb.period[a], pb.period[b]
@@ -209,7 +251,7 @@ class State:
         lst = self.occ.get(key)
         if not lst or len(lst) < 2:
             return 0.0
-        c = 0
+        c = bonus = 0
         for x in range(len(lst)):
             for y in range(x + 1, len(lst)):
                 a, b = lst[x], lst[y]
@@ -217,7 +259,9 @@ class State:
                     continue
                 if self.pair_conflict(a, b, key[0]):
                     c += 1
-        return c * self.pb.w["conflict"]
+                elif key[0] == "t" and self.same_stream(a, b):
+                    bonus += 1
+        return c * self.pb.w["conflict"] - bonus * self.pb.w.get("stream_bonus", 0.0)
 
     def day_cost(self, ent, d, w) -> float:
         kind, name = ent
@@ -343,6 +387,14 @@ class State:
                 merged[k] = {**c, "weeks": [c["week"]], "possible": pb.dated[a] or pb.dated[b]
                              or any(l["dates"] for x in (a, b) for l in pb.data["events"][x]["lessons"])}
                 del merged[k]["week"]
+        streams = set()
+        for key, lst in self.occ.items():
+            if key[0] == "t":
+                for x in range(len(lst)):
+                    for y in range(x + 1, len(lst)):
+                        if self.same_stream(lst[x], lst[y]):
+                            streams.add((key[1], key[2], key[3], lst[x], lst[y]))
+        self.streams = sorted({(t, d, s_) for t, d, s_, _, _ in streams})
         g_gaps = t_gaps = overload = singles = late = sat = pe = 0
         days = {(k[0], k[1], k[2], k[4]) for k in self.occ if k[0] != "r" and self.occ[k]}
         for kind, name, d, w in days:
@@ -367,6 +419,8 @@ class State:
         return {
             "cost": round(self.total_cost(), 1),
             "conflicts": list(merged.values()),
+            "streams": [{"teacher": t, "day": d, "slot": s_, "events": [a, b]}
+                        for t, d, s_, a, b in sorted(streams)],
             "metrics": {
                 "Накладки (преподаватель/группа/аудитория)": sum(not c["possible"] for c in merged.values()),
                 "Возможные накладки (занятия по датам)": sum(c["possible"] for c in merged.values()),
@@ -377,6 +431,7 @@ class State:
                 "Пары после 16:00 у очников": late,
                 "Пары в субботу у очников": sat,
                 "Физкультура вплотную к паре на Краснопрудной": pe,
+                "Лекции потоком (сразу для нескольких групп)": self.stream_lectures(),
                 "Перенесено занятий": moved,
                 "Сменено аудиторий": room_changed,
             },
