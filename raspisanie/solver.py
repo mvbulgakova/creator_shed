@@ -24,12 +24,14 @@ DEFAULT_WEIGHTS = {
     "room_unsuitable": 300.0,  # лабораторная не в компьютерном классе, поток не помещается
     "teacher_unavailable": 500.0,
     "group_gap": 12.0,         # окно у группы (за каждую пустую пару)
-    "teacher_gap": 3.0,        # окно у преподавателя
+    "teacher_gap": 5.0,        # окно у преподавателя
     "group_overload": 15.0,    # пар в день сверх лимита (квадратично)
     "group_single": 8.0,       # день ради одной пары
     "late_pair": 4.0,          # пара после 16:00 у очников (растёт с номером пары)
     "saturday": 3.0,           # пара в субботу у очников
     "pe_travel": 40.0,         # физкультура на Кибальчича вплотную к паре на Краснопрудной
+    "teacher_single": 8.0,     # преподаватель едет ради одной пары
+    "teacher_day": 6.0,        # каждый рабочий день преподавателя (чем компактнее неделя, тем лучше)
     "teacher_new_day": 10.0,   # преподаватель приезжает в день, когда раньше не работал
     "stability": 0.0,          # штраф за перенос занятия относительно исходного расписания
     "room_change": 0.5,        # штраф за смену аудитории (чтобы не менять без нужды)
@@ -66,7 +68,14 @@ class Config:
         cfg.group_scope = raw.get("groups") or None
         cfg.fixed_teachers = raw.get("fixed_teachers", [])
         for name, t in raw.get("teachers", {}).items():
-            cfg.teacher_unavailable[name] = parse_unavailable(t.get("unavailable", []))
+            un = parse_unavailable(t.get("unavailable", []))
+            if t.get("available"):
+                # «может только во вт и чт» = все остальные дни и пары недоступны
+                ok = parse_unavailable(t["available"])
+                ok_days = {d for d, s_ in ok if s_ is None}
+                un |= {(d, s_) for d in range(cfg.days) for s_ in range(cfg.slots)
+                       if d not in ok_days and (d, s_) not in ok}
+            cfg.teacher_unavailable[name] = un
         return cfg
 
 
@@ -108,6 +117,7 @@ class Problem:
         self.dated = [bool(e["lessons"]) and all(l["dates"] for l in e["lessons"]) for e in ev]
         self.subgroups = [frozenset(e["subgroups"]) for e in ev]
         self.offsite = [bool(e["offsite"]) for e in ev]
+        self.online = [bool(e["online"]) for e in ev]
         # «подпись» лекции: одну и ту же лекцию преподаватель может читать потоку из нескольких групп
         self.lecture_sig = []
         for e in ev:
@@ -278,6 +288,12 @@ class State:
         gaps = busy[-1][0] - busy[0][0] + 1 - n
         if kind == "t":
             cost = gaps * W["teacher_gap"]
+            # день целиком дистанционный — ехать не надо
+            if all(pb.online[i] for _, lst in busy for i in lst):
+                return cost
+            cost += W["teacher_day"]
+            if n == 1:
+                cost += W["teacher_single"]
             if W["teacher_new_day"] and d not in pb.teacher_days[name]:
                 cost += W["teacher_new_day"]
             return cost
@@ -396,12 +412,16 @@ class State:
                             streams.add((key[1], key[2], key[3], lst[x], lst[y]))
         self.streams = sorted({(t, d, s_) for t, d, s_, _, _ in streams})
         g_gaps = t_gaps = overload = singles = late = sat = pe = 0
+        t_singles = t_days = unavail = 0
         days = {(k[0], k[1], k[2], k[4]) for k in self.occ if k[0] != "r" and self.occ[k]}
         for kind, name, d, w in days:
             busy = [s for s in range(pb.cfg.slots) if self.occ.get((kind, name, d, s, w))]
             gaps = busy[-1] - busy[0] + 1 - len(busy)
             if kind == "t":
                 t_gaps += gaps
+                if not all(pb.online[i] for s_ in busy for i in self.occ[(kind, name, d, s_, w)]):
+                    t_days += 1
+                    t_singles += len(busy) == 1
             else:
                 g_gaps += gaps
                 overload += max(0, len(busy) - pb.cfg.max_pairs_per_day)
@@ -410,6 +430,10 @@ class State:
                 pe += sum(1 for s in offs for nb in (s - 1, s + 1) if nb in busy and nb not in offs)
         for i in range(pb.n):
             d, s, ws, _ = self.pos[i]
+            for t in pb.data["events"][i]["teachers"]:
+                un = pb.unavail.get(t)
+                if un and ((d, None) in un or (d, s) in un):
+                    unavail += len(ws)
             if not pb.ozfo[i]:
                 late += (s >= 4) * len(ws)
                 sat += (d == 5) * len(ws)
@@ -426,6 +450,9 @@ class State:
                 "Возможные накладки (занятия по датам)": sum(c["possible"] for c in merged.values()),
                 "Окна у групп (пар за 2 недели)": g_gaps,
                 "Окна у преподавателей (пар за 2 недели)": t_gaps,
+                "Приезды преподавателей ради одной пары": t_singles,
+                "Рабочие дни преподавателей в корпусе (за 2 недели)": t_days,
+                "Пары в недоступное для преподавателя время": unavail,
                 f"Пары сверх {pb.cfg.max_pairs_per_day} в день у групп": overload,
                 "Дни ради одной пары (группа·день)": singles,
                 "Пары после 16:00 у очников": late,
